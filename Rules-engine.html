@@ -50,6 +50,7 @@ textarea{width:100%;min-height:260px;font:13px/1.4 ui-monospace,monospace}
 .vi.r1{grid-column:auto}
 .vi input{width:4.5em;padding:3px 6px}
 button:disabled{opacity:.45;cursor:not-allowed}
+.res{font-size:1.5rem;font-weight:700;color:var(--ac);margin:8px 0 2px}
 @media (max-width:560px){.tri{grid-template-columns:1fr}.vi.r1{grid-column:1/-1}}
 </style></head><body><main>
 <label style="max-width:260px"><span class="mut">Character</span><select id="cs"></select></label>
@@ -66,8 +67,9 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <div class="tri" id="sg"></div>
   <div class="lab">Action types <span class="mut">(highest bonus wins)</span></div>
   <div class="tri" id="tg"></div>
-  <div class="lab">Subtype</div>
-  <div class="tri2"><select id="me" aria-label="Subtype"></select><div id="ex"></div></div>
+  <div class="lab">Power source</div>
+  <div class="tri2"><select id="me" aria-label="Power source"><option value="weapon">Weapon</option><option value="powered">Powered</option><option value="unpowered">Unpowered</option><option value="trait">Trait</option></select><div id="ex"></div></div>
+  <div id="dtw" hidden><div class="lab">Subtype</div><div class="tri" id="dtg"></div></div>
   <div class="card" style="background:var(--bg);margin-bottom:12px"><div id="pv"></div></div>
   <div id="pc"></div>
   <div class="err" id="pwm" role="alert"></div>
@@ -140,7 +142,7 @@ src:[
 {n:"Clumsy",k:"Traits",t:"Offensive crit fail +1 dmg"},
 {n:"Enrage",k:"Traits",t:"BA buff own attack"},
 {n:"More Enraged x2",k:"Traits",b:[[["buff","ownattack"],10]]},
-{n:"Execute",k:"Traits",p:[{w:["attack"],c:"the attack leaves the enemy at 1 HP",t:"execute (+1 dmg)"}]},
+{n:"Execute",k:"Traits",p:[{w:["attack"],c:"the attack leaves the enemy at 1 HP",x:1,t:"execute (+1 dmg)"}]},
 {n:"Condemn",k:"Traits",p:[{w:["attack","powered"],c:"the enemy survives your powered attack",t:"refund 1 rage",res:1}]},
 {n:"Resilience Training x2",k:"Traits",b:[[["controldef"],10]]},
 {n:"Tanking Training x2",k:"Traits",b:[[["tank"],10]]},
@@ -153,7 +155,7 @@ src:[
 {n:"Ignore Pain",k:"Class",t:"Can tank multiple times (warrior)"},
 {n:"Suppressing Fire",k:"Class",t:"BA suppress target, gaining additional AoO against it when it attacks (soldier)"},
 {n:"Manifest Echo",k:"Class",t:"BA swap location with mirror image (echo knight)"},
-{n:"Eviscerata",k:"Weapons",t:"Weapon: 5 slashing dmg, 8 dur. \u00b7 On attack, +1 dmg (Burning Blade)"},
+{n:"Eviscerata",k:"Weapons",t:"Weapon: 5 slashing dmg, 8 dur.",p:[{w:["attack"],a:1,x:1,t:"+1 dmg (Burning Blade)"}]},
 {n:"Rwngal",k:"Weapons",t:"Secondary: 3 arcane dmg, 8 dur. \u00b7 1x per day, roll attack/heal resource on all enemies in 15ft"},
 {n:"Lanao's Overconfidence",k:"Armor",s:{armor:5,expertise:2}},
 {n:"Ancestral Vrykul Armor 2.0",k:"Armor",s:{armor:6},b:[[["attack"],10]],p:[{w:["attack"],d:3,on:3,t:"heal for +1 HP"}]},
@@ -196,33 +198,59 @@ function render(){
 const FR=new Set(["healing","hot","mana","buff","summon","inspire","reflect","conjure","mend","recharge","stealth","aid","tank"]);
 const CT=["taunt","flare","root"];
 const mode=t=>t.some(x=>DF.has(x))?"def":t.some(x=>!anc(x).some(y=>FR.has(y)))?"off":"fr";
-const ptxt=p=>p.d?`1d${p.d}, on ${p.on}+: ${p.t}`:p.par?`if the roll is ${p.par}: ${p.t}`:`if ${p.c}: ${p.t}`;
-const plabel=p=>p.c?`Tick if ${p.c}: ${p.t}`:p.par?`Check roll parity: if ${p.par}, ${p.t}`:`Roll proc: 1d${p.d}, on ${p.on}+ ${p.t}`;
+const ptxt=p=>p.d?`1d${p.d}, on ${p.on}+: ${p.t}`:p.par?`if the roll is ${p.par}: ${p.t}`:p.a?`always: ${p.t}`:`if ${p.c}: ${p.t}`;
+const plabel=p=>p.c?`Tick if ${p.c}: ${p.t}`:p.par?`Check roll parity: if ${p.par}, ${p.t}`:p.a?`Always on hit: ${p.t}`:`Roll proc: 1d${p.d}, on ${p.on}+ ${p.t}`;
 const DF=new Set(["defense","dotdef","controldef","debuffdef","hold","sizedef"]);
 const pick=p=>[0,1,2].map(i=>$(p+i).value).filter(Boolean);
 const wpns=()=>act().filter(s=>/^(Weapon|Secondary):/.test(s.t||""));
 const wlabel=s=>s.n+" ("+s.t.replace(/^\w+:\s*/,"").split(" \u00b7 ")[0]+")";
 
-function setMeth(){
- const m=$("me").value;
- $("ex").innerHTML=m==="weapon"?`<select id="wp" aria-label="Weapon">${wpns().map((s,i)=>`<option value="${i}">${esc(wlabel(s))}</option>`).join("")||"<option>No weapon on sheet</option>"}</select>`:(m==="powered"||CT.includes(m))?`<label class="mut sm" style="display:flex;gap:6px;align-items:center">Power <input type="number" id="pw" min="0" value="${m==="powered"?1:0}" aria-label="Resource spent to power"></label>`:"";
- const e=$("wp")||$("pw");if(e)e.addEventListener("input",preview);
+const pws=()=>[$("pw"),$("pw2")].map(e=>e?+e.value||0:0);
+const TB=[25,1,50,2,75,3,100,5,125,6,150,7,175,8,200,10,225,11,250,12,275,13,300,15];
+const res=t=>{let v=0;for(let i=0;i<TB.length;i+=2)if(t>=TB[i])v=TB[i+1];return v};
+const mres=t=>t<2?0:t<25?1:t<100?Math.floor(t/25)+1:res(t);
+const SCH=Object.values(G).flat();
+const sid=s=>SCH.find(x=>x===s||nm(x)===s);
+const wdmg=s=>{const m=(s&&s.t||"").match(/(\d+)\s+([a-z\/]+)\s+dmg/i);return m?{n:+m[1],s:sid(m[2].toLowerCase())}:null};
+const TWO=["dot","hot","buff","debuff","summon"],BS=["buff","debuff","summon"];
+const sv=t=>{const e=document.querySelector(`#dtg select[data-t="${t}"]`);return e?e.value:""};
+const trts=()=>act().filter(s=>s.g);
+const two=()=>pick("t").some(t=>TWO.includes(t))||sv("healing")==="barrier";
+
+function fillSchool(){
+ const m=$("me").value,t=m==="trait"?trts()[+($("tr")||{}).value]:null;
+ const w=m==="weapon"?wdmg(wpns()[+($("wp")||{}).value]):t&&t.g.s?{s:t.g.s}:null;
+ if(w&&w.s){$("s0").value=w.s;$("s1").value="";$("s2").value=""}
 }
 
-function subOpts(){
- const me=$("me"),cur=me.value,ctl=pick("t").some(t=>anc(t).includes("control"));
- me.innerHTML=`<option value="weapon">Weapon</option><option value="powered">Powered</option><option value="unpowered">Unpowered</option><option value="trait">Trait</option>`+(ctl?`<option value="taunt">Taunt (control)</option><option value="flare">Flare (control)</option><option value="root">Root (control)</option>`:"");
- if([...me.options].some(o=>o.value===cur))me.value=cur;
- setMeth();
+function setMeth(){
+ const m=$("me").value,pw=m==="powered",v=1;
+ const pf=(id,l)=>`<label class="mut sm" style="display:flex;gap:6px;align-items:center">${l} <input type="number" id="${id}" min="0" value="${v}" aria-label="${l}"></label>`;
+ const opt=(a,f)=>a.map((s,i)=>`<option value="${i}">${esc(f(s))}</option>`).join("");
+ $("ex").innerHTML=m==="weapon"?`<select id="wp" aria-label="Weapon">${opt(wpns(),wlabel)||"<option>No weapon on sheet</option>"}</select>`:m==="trait"?`<select id="tr" aria-label="Trait">${opt(trts(),s=>s.n+" (min "+s.g.n+")")||"<option>No trait with a guaranteed minimum</option>"}</select>`:pw?`<div style="display:flex;gap:8px;flex-wrap:wrap">${two()?pf("pw","Duration power")+pf("pw2","Effect power"):pf("pw","Power")}</div>`:"";
+ ["wp","tr","pw","pw2"].forEach(i=>{const e=$(i);if(e)e.addEventListener("input",()=>{if(i==="wp"||i==="tr")fillSchool();preview()})});
+ if(m==="weapon"||m==="trait")fillSchool();
 }
+
+function detOpts(){
+ const ts=pick("t").filter((t,i,a)=>a.indexOf(t)===i),A=Object.values(T).flat().map(([i,n])=>[i,n]);
+ const O={control:[["","Any control"],["taunt","Taunt"],["flare","Flare"],["root","Root"]],mend:[["armor","Mend armor"],["weapon","Mend weapon"]],size:[["enlarge","Enlarge"],["reduce","Reduce"]],copy:SCH.map(s=>[s,nm(s)]),healing:[["","Normal healing"],["barrier","Barrier"]],buff:A,debuff:A,summon:A};
+ const keep={};document.querySelectorAll("#dtg select").forEach(e=>keep[e.dataset.t]=e.value);
+ const hs=ts.filter(t=>O[t]);
+ $("dtg").innerHTML=hs.map(t=>`<label class="mut sm">${esc(nm(t))}<select data-t="${t}" aria-label="Subtype for ${esc(nm(t))}">${O[t].map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select></label>`).join("");
+ document.querySelectorAll("#dtg select").forEach(e=>{const k=keep[e.dataset.t];if(k!==undefined&&[...e.options].some(o=>o.value===k))e.value=k;e.addEventListener("input",()=>{setMeth();preview()})});
+ $("dtw").hidden=!hs.length;
+}
+
+function subOpts(){detOpts();setMeth()}
 
 function calc(){
- const sch=pick("s"),tys=pick("t"),me=$("me").value,sub=CT.includes(me),base=new Set(sub?[]:[me]);
+ const sch=pick("s"),tys=pick("t"),me=$("me").value,dv=sv("control"),sub=CT.includes(dv),base=new Set(me==="powered"?[]:[me]);if(pws().some(x=>x>1))base.add("powered");
  sch.forEach(s=>anc(s).forEach(t=>base.add(t)));
  if(sch.length&&sch.every(s=>anc(s).pop()==="physical"))base.add("nonmagical");
  const cand=(tys.length?tys:[""]).map(t=>{
   const set=new Set(base);if(t)anc(t).forEach(x=>set.add(x));
-  if(sub&&set.has("control")){set.add(me);set.add("minor")}
+  if(sub&&set.has("control")){set.add(dv);set.add("minor")}
   const lines=[];act().forEach(s=>(s.b||[]).forEach(([w,v])=>{if(w.every(x=>set.has(x)))lines.push([s.n,v])}));
   return{t,set,lines,tot:lines.reduce((a,l)=>a+l[1],0)}});
  const best=cand.reduce((a,c)=>c.tot>a.tot?c:a);
@@ -259,18 +287,61 @@ function preview(){
 }
 
 function roll(){
- if($("go").disabled)return;let refund=0;
- const c=calc(),k=crit(c),d=1+Math.floor(Math.random()*100),me=$("me").value;
- let m=me;
- if(me==="weapon"){const w=wpns()[+$("wp").value];m=w?"weapon: "+w.n:"weapon"}
- if($("pw")&&(me==="powered"||+$("pw").value>0))m=(me==="powered"?"powered":me+", powered")+" ("+($("pw").value||0)+")";
- let h=`<div class="big">${d+c.tot}</div><div class="mut">d100 rolled ${d} ${sg(c.tot)} bonus \u00b7 ${esc(m)}</div>`;
- if(k.mode!=="none"){const cr=k.mode==="off"?d>=k.min:d<=k.max;h+=`<div class="${cr?"proc":"mut"}">${cr?(k.mode==="off"?"Critical hit!":"You are critted!"):"No crit."}</div>`}
+ if($("go").disabled)return;
+ const c=calc(),k=crit(c),tys=c.tys,me=$("me").value,rd=()=>1+Math.floor(Math.random()*100);
+ const [p1,p2]=pws(),w=me==="weapon"?wpns()[+$("wp").value]:null,wd=wdmg(w),tr=me==="trait"?trts()[+$("tr").value]:null,tw=two();
+ const prim=pick("s")[0]||"",sl=prim?nm(prim)+" ":"";
+ const d1=rd(),t1=d1+c.tot,d2=tw?rd():0,t2=d2+c.tot;
+ const dbl=d=>k.mode==="off"&&d>=k.min;
+ let h="",ex=[],refund=0,inc=0,dec=0,anyCrit=false;const pl=[];
  document.querySelectorAll("#pc input:checked").forEach(b=>{
-  const p=c.procs[b.dataset.p],r=p.d?1+Math.floor(Math.random()*p.d):d,hit=p.d?r>=p.on:p.par?((d+c.tot)%2!==0)===(p.par==="odd"):true;if(hit&&p.res)refund+=p.res;
-  h+=`<div style="margin-top:8px"><span class="${hit?"proc":"mut"}">${hit?"Proc!":"No proc."}</span> ${p.d?`1d${p.d} rolled ${r}`:p.par?`Total ${d+c.tot} is ${(d+c.tot)%2?"odd":"even"}`:esc(p.c)}${hit?`: ${esc(p.t)}`:""}</div>`});
- const sp=$("pw")?+$("pw").value||0:0;
- if(sp||refund){C.cur=C.cur||{};const k=RK();C.cur[k]=Math.min(Math.max(0,cv(k)-sp+refund),Math.max(ST[k]||0,cv(k)));h+=`<div class="mut" style="margin-top:8px">${esc(cap(k))}: ${sp?`spent ${sp}`:""}${sp&&refund?", ":""}${refund?`refunded ${refund}`:""} (now ${C.cur[k]})</div>`;$("js").value=JSON.stringify(C,null,1);vitals();checkPow()}
+  const p=c.procs[b.dataset.p],r=p.d?1+Math.floor(Math.random()*p.d):0,hit=p.d?r>=p.on:p.par?(t1%2!==0)===(p.par==="odd"):true;
+  if(hit&&p.res)refund+=p.res;
+  if(hit&&p.x)ex.push({x:p.x,s:p.s});
+  pl.push(`<div style="margin-top:8px"><span class="${hit?"proc":"mut"}">${hit?"Proc!":"No proc."}</span> ${p.d?`1d${p.d} rolled ${r}`:p.par?`Total ${t1} is ${t1%2?"odd":"even"}`:esc(p.c||"on hit")}${hit?`: ${esc(p.t)}`:""}</div>`)});
+ const val=(tt,dd,pw,wm,t,tw)=>{const b0=t==="mana"?mres(tt):res(tt)||(tw&&dd!==1?1:0);if(!b0)return null;const m=dbl(dd)?2:1;if(m>1)anyCrit=true;return{b:Math.max(b0,pw>1?pw:0,wm)*m,e:ex.map(e=>({x:e.x*m,s:e.s}))}};
+ const fmt=(v,u)=>{const sm=v.e.filter(e=>!e.s||e.s===prim),ot=v.e.filter(e=>e.s&&e.s!==prim);return[`${v.b}${sm.map(e=>"+"+e.x).join("")} ${sl}${u}`].concat(ot.map(e=>`${e.x} ${nm(e.s)} ${u}`)).join(" + ")};
+ const O=t=>{
+  const tw1=TWO.includes(t)||(t==="healing"&&sv("healing")==="barrier"),dv=sv(t);
+  if(t==="interrupt")return t1>=25?"Interrupt succeeded":"Interrupt failed";
+  if(t==="aid"){dec=res(t1);return `added ${t1} to the ally's roll (-${dec} ${RK()} to ${C.name})`}
+  if(DF.has(t)||["hoo","tank","conjure"].includes(t))return null;
+  const r1=res(t1);if(tw1&&!r1)return "missed";let D=1;if(tw1){D=Math.max(r1,p1>1?p1:0);if(dbl(d1)){D*=2;anyCrit=true}}const [tt,dd,pp]=tw1?[t2,d2,p2]:[t1,d1,p1];
+  const E=val(tt,dd,pp,Math.max((t==="attack"||t==="aoo")&&wd?wd.n:0,tr&&(tr.g.w||["attack"]).some(x=>anc(t).includes(x))?tr.g.n:0),t,tw1);
+  if(!E)return "missed";
+  const S=E.b+E.e.reduce((a,e)=>a+e.x,0);
+  switch(t){
+   case"attack":case"aoo":return fmt(E,"dmg")+" dealt";
+   case"dot":return `${D}x ${fmt(E,"dmg")} dealt`;
+   case"healing":return dv==="barrier"?`cast ${D}x +${S} barrier HP`:`+${S} health healed`;
+   case"hot":return `${D}x +${S} health healed`;
+   case"mana":if(RK()==="mana")inc=S;return `+${S} ${RK()} restored`;
+   case"control":return `dealt -${S} ${sl}stamina to the target${dv?` (${dv})`:""}`;
+   case"displace":return `moved target by ${S*10} ft`;
+   case"buff":return `buffed ${D}x +${S*5} to ${nm(dv)} rolls`;
+   case"debuff":return `debuffed ${D}x -${S*5} to ${nm(dv)} rolls`;
+   case"summon":return `summoned (creature TBD) for ${D}x +${S*5} ${nm(dv)}`;
+   case"inspire":return `restored +${S} stamina`;
+   case"reflect":return `prepared to reflect ${S} dmg`;
+   case"mend":return dv==="weapon"?`restored +${S*2} weapon durability`:`restored +${S} armor`;
+   case"recharge":return `restored +${S} charges`;
+   case"copy":return `copied +${S*5} ${nm(dv)} proficiency`;
+   case"size":return dv==="reduce"?`shrunk by -${S} size`:`enlarged by +${S} size (${S*3} ft radius)`;
+   case"stealth":return `+${S*5} backstab`;
+  }
+  return null;
+ };
+ const outs=tys.map(t=>[t,O(t)]).filter(x=>x[1]);
+ const pp=[p1,p2],m=me+(w?": "+w.n:"")+(tr?": "+tr.n:"")+(pp.some(x=>x>0)?", power "+(tw?pp.join("/"):p1):"")+[...document.querySelectorAll("#dtg select")].filter(e=>e.value).map(e=>", "+e.selectedOptions[0].text.toLowerCase()).join("");
+ h+=`<div class="mut">d100 rolled ${d1} ${sg(c.tot)} = <b>${t1}</b>${tw?`, then ${d2} ${sg(c.tot)} = <b>${t2}</b>`:""} \u00b7 ${esc(m)}</div>`;
+ h+=outs.length?outs.map(([t,x])=>`<div class="res">${outs.length>1?`<span class="mut sm">${esc(nm(t))}: </span>`:""}${esc(x)}</div>`).join(""):`<div class="big">${t1}</div>`;
+ if(k.mode==="off"){const cr=outs.length?anyCrit:dbl(d1);if(cr)h+=`<div class="proc">Critical hit!${outs.length?" Results doubled.":""}</div>`}
+ if(k.mode==="def"){const cr=d1<=k.max;h+=`<div class="${cr?"proc":"mut"}">${cr?"You are critted!":"No crit."}</div>`}
+ h+=pl.join("");
+ const sp=p1+(tw?p2:0);
+ if(sp||refund||inc||dec){C.cur=C.cur||{};const r=RK();C.cur[r]=Math.min(Math.max(0,cv(r)-sp-dec+refund+inc),Math.max(ST[r]||0,cv(r)));
+  h+=`<div class="mut" style="margin-top:8px">${esc(cap(r))}: ${[sp&&`spent ${sp}`,dec&&`aid cost ${dec}`,refund&&`refunded ${refund}`,inc&&`restored ${inc}`].filter(Boolean).join(", ")} (now ${C.cur[r]})</div>`;
+  $("js").value=JSON.stringify(C,null,1);vitals();checkPow()}
  $("rs").innerHTML=h;
 }
 
@@ -283,9 +354,9 @@ function vitals(){
  $("vt").innerHTML=f("health","Health",ST.health||0," r1")+f("armor","Armor",ST.armor||0," r1")+f("barrier","Barriers",ST.barrier||0," r1")+f(r,cap(r),ST[r]||0)+f("speed","Speed",ST.speed||0)+f("stamina","Stamina",ST.stamina||0)+`<div class="vi"><b>Size:</b><input type="number" data-k="size" value="${cv("size")}" aria-label="Size"><span class="mut">0 = medium, 3 ft radius</span></div>`;
 }
 function checkPow(){
- const p=$("pw"),need=p?+p.value||0:0,have=cv(RK()),bad=need>have;
- $("go").disabled=bad;
- $("pwm").textContent=bad?`Not enough ${RK()}: this needs ${need} and you have ${have}.`:"";
+ const need=pws().reduce((a,b)=>a+b,0),have=cv(RK()),aoo=pick("t").includes("aoo")&&$("me").value!=="weapon";
+ const msg=aoo?"Attack of opportunity needs a weapon: choose Weapon as the power source.":need>have?`Not enough ${RK()}: this needs ${need} and you have ${have}.`:"";
+ $("go").disabled=!!msg;$("pwm").textContent=msg;
 }
 
 function fillCs(){$("cs").innerHTML=CHARS.map((c,i)=>`<option value="${i}" ${c===C?"selected":""}>${esc(c.name)}</option>`).join("")}
